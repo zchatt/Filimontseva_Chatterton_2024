@@ -15,7 +15,7 @@ Scripts used in the data analysis desribed in Filimontseva & Chatterton et al, "
 ## nm
 Scripts used for the downstream analysis of Neuromelanin, following intraneuronal Neuromelanin quentification described in https://github.com/zchatt/Neuromelanin
 
-1) Analysis of intraneuronal NM granules using linear regression and k-means clustering to define granule classes [nm/regression_cluster_inm.R](regression_cluster_inm.R)
+1) Analysis of intraneuronal NM granules using linear regression and k-means clustering to define granule classes [regression_cluster_inm.R](nm/regression_cluster_inm.R)
 
 
 ## snranseq
