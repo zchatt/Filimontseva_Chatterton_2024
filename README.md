@@ -2,6 +2,9 @@
 Scripts used in the data analysis desribed in Filimontseva & Chatterton et al, "Changes in the production and type of neuromelanin are early features in neurons that selectively degenerate in Parkinson’s disease", 2024.
 
 
+## convenience
+1) convenience scripts eg. colors, gene lists etc. [convenience_ca.R](convenience/convenience_ca.R)
+
 ## geomx
 1) Low level processing and quality control of Nanostring GeoMx data [quality_control_gx.R](geomx/quality_control_gx.R)
 2) Alternative low level processing and quality control of Nanostring GeoMx data without applying LOQ thresholds [quality_control_min_gx.R](geomx/quality_control_min_gx.R)
@@ -10,7 +13,7 @@ Scripts used in the data analysis desribed in Filimontseva & Chatterton et al, "
 5) Deconvolution of cell-type proportions in Nanostring GeoMx data using RCTD method [rctd_gx.R](geomx/rctd_gx.R)
 6) Evaluation of cell-type proportions by brain region in GeoMx datat [diff_celltype.gx.R](geomx/diff_celltype.gx.R)
 7) Analysis of Nanostring GeoMx data to identify DEGs associated with NM granule classes [deg_inm_gx.R](geomx/deg_inm_gx.R)
-8) Evaluation of gene expression of genes of interest within GeoMx data [geneexp_gx.R](geomx/geneexp_gx.R)
+8) Evaluation of gene expression differences between CTr and PD of genes of interest within GeoMx data [geneexp_gx.R](geomx/geneexp_gx.R)
 
 ## nm
 Scripts used for the downstream analysis of Neuromelanin, following intraneuronal Neuromelanin quentification described in https://github.com/zchatt/Neuromelanin

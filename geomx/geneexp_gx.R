@@ -10,6 +10,7 @@ library(Seurat)
 library(edgeR)
 library(ComplexHeatmap)
 library(tidyr)
+library(tidyverse)
 
 
 ###############
@@ -19,23 +20,13 @@ library(tidyr)
 analysis_dir = "/Users/zacc/USyd/spatial_transcriptomics/analysis/geomx/geomx_oct2023/analysis"
 setwd(analysis_dir)
 
-# colour palettes
-Diagnosis_col = c("CTR"= "grey","ILBD" = "#00AFBB", "ePD" = "#E7B800","lPD" = "red")
-age_group_col = magma(4)
-ROI_col = c("SNL" = "darkorchid1",
-            "SNV" = "purple",
-            "SND" = "purple3",
-            "SNM" = "purple4",
-            "VTA" = "forestgreen",
-            "LC" = "yellow",
-            "SNV_young" = "pink")
+# source convenience script
+source("/Users/zacc/github_repo/Filimontseva_Chatterton_2024/convenience/convenience_ca.R")
 
 
 ############################################################################################
 ### # 1a. Evaluate expression of published DA neuronal scRNA markers of PD in GeoMx data as % of controls
 ############################################################################################
-# define  genes interest
-genes_to_plot <- c("TH","SOX6","AGTR1","ALDH1A1","KCNJ6","ANXA1","RIT2","SATB1","CALB1","SLC17A6") # markers of vulnerable populations and resistance_markers "CALB1","SLC17A6"
 
 # ## evaluate genes of interest in non-thresheld data
 # load("/Users/zacc/USyd/spatial_transcriptomics/analysis/geomx/geomx_oct2023/analysis_min/geomx_oct2023_min_gt0.gs0.01_qc.gx.Rdata")
@@ -49,24 +40,24 @@ genes_to_plot <- c("TH","SOX6","AGTR1","ALDH1A1","KCNJ6","ANXA1","RIT2","SATB1",
 # ggsave("table.relevantgenes.png",ss,device = "png")
 # # unexpectedly SOX6 is below gene detection threshold
 
+# Define ROIs or groups of ROIs to contrast
+contrast_rois <- list()
+contrast_rois[[1]] <- c("SNV")
+contrast_rois[[2]] <- c("VTA")
+contrast_rois[[3]] <- c("SNV","SNM","SND","SNL","VTA")
+contrast_names <- c("SNV","VTA","midbrain")
 
 # ST - GeoMx thresheld data
 load("/Users/zacc/USyd/spatial_transcriptomics/analysis/geomx/geomx_oct2023/analysis/geomx_oct2023_seurat.Rdata")
 exp_dat <- as.matrix(gxdat_s@assays$RNA$data)
 meta_dat <- as.data.frame(gxdat_s@meta.data)
+colnames(meta_dat) <- make.names(colnames(meta_dat))
 
-# define df and meta data 
-genes_to_plot <- genes_to_plot[genes_to_plot %in% row.names(exp_dat)]
-
-meta_dat <- meta_dat[meta_dat$ROI %in% c("SNM") &
-                       meta_dat$segment == "TH" &
+# define df and meta data
+meta_dat <- meta_dat[meta_dat$segment == "TH" &
                        meta_dat$Diagnosis %in% c("CTR","ePD","lPD"),]
 meta_dat$condt <- meta_dat$Diagnosis != "CTR"
-exp_dat <- exp_dat[genes_to_plot,row.names(meta_dat)]
-
-# make midbrain ROI
-meta_dat$ROI2 <- "midbrain"
-
+exp_dat <- exp_dat[,row.names(meta_dat)]
 
 # DEG analysis between between PD and Control subjects within each ROI
 # # format covariates
@@ -75,33 +66,38 @@ meta_dat$condt <- as.factor(meta_dat$condt)
 meta_dat$Age  <- as.numeric(meta_dat$Age)
 meta_dat$DV200  <- as.numeric(meta_dat$DV200)
 meta_dat$Brainbank_ID <- as.factor(meta_dat$Brainbank_ID)
+meta_dat$scan.name <- as.factor(meta_dat$scan.name)
 
 # limma voom
-unique_var <- unique(meta_dat$ROI2)
 res <- list()
-for (val in 1:length(unique_var)){  
-  print(unique_var[val])
+for (val in 1:length(contrast_rois)){  
+  print(contrast_rois[val])
   
   # subset for var of interest
-  meta_dat2 <- meta_dat[meta_dat$ROI2 == unique_var[val],]
+  meta_dat2 <- meta_dat[meta_dat$ROI %in% unlist(contrast_rois[val]),]
   exp_dat2 <- exp_dat[,row.names(meta_dat2)]
   
   dge <- DGEList(exp_dat2, group = meta_dat2$condt)
   dge <- calcNormFactors(dge)
-  design <- model.matrix( ~ condt + DV200 + Age + Sex, data=meta_dat2)
+  design <- model.matrix( ~ condt + DV200 + Age + Sex + scan.name , data=meta_dat2)
   vm <- voom(dge, design = design, plot = TRUE)
   fit <- lmFit(vm, design = design)
   fit <- eBayes(fit)
   tt <- topTable(fit, n = Inf, adjust.method = "BH")
   
-  tt$contrast <- unique_var[val]
+  tt$contrast <- contrast_names[val]
   res[[val]] <- tt
 }
 
+# define  genes interest to write to file
+genes_to_plot <- c("TH","SOX6","AGTR1","ALDH1A1","KCNJ6","ANXA1","RIT2","SATB1","CALB1","SLC17A6") # markers of vulnerable populations and resistance_markers "CALB1","SLC17A6"
+genes_to_plot <- genes_to_plot[genes_to_plot %in% row.names(exp_dat)]
+
 # name results
-names(res) <- unique_cell_type
+names(res) <- contrast_names
 res <- lapply(res, function(x) {
   x$Gene <- row.names(x)
+  x <- x[genes_to_plot,]
   row.names(x) <- NULL
   return(x)
 })
@@ -109,8 +105,7 @@ res <- lapply(res, function(x) {
 # write summary to file
 stat.summary <- do.call(rbind,res)
 df <- as.data.frame(apply(stat.summary,2,as.character))
-#write.table(df, file="deg_res.vun.genes_ctr.pd_TH.stat.summary.txt", sep="\t",row.names = F, quote = F)
-#write.table(df, file="deg_res.vun.genes_ctr.pd_Full.stat.summary.txt", sep="\t",row.names = F, quote = F)
+write.table(df, file="deg_res.vun.genes_ctr.pd_TH.stat.summary.txt", sep="\t",row.names = F, quote = F)
 
 # plot valcano
 dplot <- df
@@ -168,17 +163,13 @@ g1 <- ggplot(dplot, aes(x = logFC, y = adj.P.Val_log10)) +
   
 # save plot
 arrange <- ggarrange(plotlist=list(g1), nrow=2, ncol=2)
-ggsave("volcano_res.vun.genes_ctr.pd_TH.pdf", arrange,width = 8, height = 6)
-#ggsave("volcano_res.vun.genes_ctr.pd_Full.pdf", arrange,width = 8, height = 6)
+ggsave("volcano_res.vun.genes_ctr.pd_TH_v2.pdf", arrange,width = 8, height = 6)
 
 
-#### plot % of controls
-
+#### plot as % of controls
 # define groupings and collection list
-grp_list <- list(c("SND", "SNM", "SNV","VTA"),
-                 c("SNV"),c("SNM"),c("VTA"))
-br_list <- list(c("midbrain"),
-                c("SNV"),c("SNM"),c("VTA"))
+grp_list <- contrast_rois
+br_list <- contrast_names
 col_list <- list()
 
 # collect mean/ sd for each group
@@ -196,8 +187,7 @@ for (i in 1:length(grp_list)){
                          meta_dat$Diagnosis %in% c("CTR","ePD","lPD"),]
   meta_dat$condt <- meta_dat$Diagnosis != "CTR"
   exp_dat <- exp_dat[genes_to_plot,row.names(meta_dat)]
-  
-  
+
   # combine data
   data_table <- cbind(meta_dat,t(exp_dat))
   
@@ -292,13 +282,13 @@ p<- ggplot(df3, aes(x=condition, y=mean, fill=BrainRegion)) +
                 position=position_dodge(.9)) +
   labs( x="", y = "Norm. Count (% of CTR's)") +
   theme_classic() + 
-  scale_fill_manual(values=c("grey","purple","purple4","forestgreen")) + 
+  scale_fill_manual(values=c("grey","purple","forestgreen")) + 
   #ylim(0,330) +
   geom_hline(yintercept = 100, lty = 2)
   theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5), legend.position = "none")
 
 arrange <- ggarrange(plotlist=list(p), nrow=2, ncol=1, widths = c(2,2))
-ggsave("bar_res.vun.cellmarkers_prc.ctr_CTRPD_midbrainregions_gx.pdf", arrange,width = 8, height = 6)
+ggsave("bar_res.vun.cellmarkers_prc.ctr_CTRPD_midbrainregions_gx_v2.pdf", arrange,width = 8, height = 6)
 #ggsave("bar_res.vun.cellmarkers_prc.ctr_CTRPD_gx.pdf", arrange,width = 8, height = 6)
 #ggsave("Vln_res.vun.cellmarkers_prc.ctr_CTRPD.pdf", arrange,width = 8, height = 6)
 #ggsave("Vln_iNM_n_per.mm2.ROI.pdf", arrange)

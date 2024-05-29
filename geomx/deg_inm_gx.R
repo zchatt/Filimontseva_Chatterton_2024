@@ -1,4 +1,5 @@
-# Differential Expression Analysis
+# Differential Expression Analysis of TH+ neurons (GeoMx) associated with different NM classes 
+
 library(edgeR)
 library(fgsea)
 library(reactome.db)
@@ -9,6 +10,8 @@ library(ggpubr)
 library(dplyr)
 library(plyr)
 library(enrichR)
+library(VennDiagram)
+library(writexl)
 
 ############################################################################################
 #### Inputs
@@ -20,22 +23,9 @@ contrast_path <- "/Users/zacc/USyd/spatial_transcriptomics/analysis/geomx/contra
 #NM_data <- "/Users/zacc/USyd/spatial_transcriptomics/analysis/geomx/geomx_oct2023/nm_data_090224.Rdata"
 NM_data <- "/Users/zacc/USyd/spatial_transcriptomics/analysis/geomx/geomx_oct2023/nm_data_280224.Rdata"
 
-# source plotting functions
-source("/Users/zacc/github_repo/ASAP-SpatialTranscriptomics/convenience/plotting_functions.R")
+# source convenience script
+source("/Users/zacc/github_repo/Filimontseva_Chatterton_2024/convenience/convenience_ca.R")
 
-### Prepare data matrix, meta data and contrast matrices
-# NOTE: The following scripts is designed to test list of contrasts (in contrasts_matrix.xlsx) by LIMMA Voom DEG analysis
-
-# colour palettes
-Diagnosis_col = c("CTR"= "grey","ILBD" = "#00AFBB", "ePD" = "#E7B800","lPD" = "red")
-age_group_col = magma(4)
-ROI_col = c("SNL" = "darkorchid1",
-            "SNV" = "purple",
-            "SND" = "purple3",
-            "SNM" = "purple4",
-            "VTA" = "forestgreen",
-            "LC" = "yellow",
-            "SNV_young" = "pink")
 ############################################################################################
 ###### Part 1: LIMMA Voom
 ############################################################################################
@@ -57,10 +47,6 @@ meta_dat$Age <- as.numeric(meta_dat$Age)
 meta_dat$n_per.µm2.iNM <- as.numeric(meta_dat$n_per.µm2.iNM)
 meta_dat$n_per.µm2.eNM <- as.numeric(meta_dat$n_per.µm2.eNM)
 meta_dat$Diagnosis_stage <- as.character(meta_dat$Diagnosis)
-meta_dat$Diagnosis_stage[meta_dat$Diagnosis_stage == "CTR"] <- 0
-meta_dat$Diagnosis_stage[meta_dat$Diagnosis_stage == "ILBD"] <- 1
-meta_dat$Diagnosis_stage[meta_dat$Diagnosis_stage == "ePD"] <- 2
-meta_dat$Diagnosis_stage[meta_dat$Diagnosis_stage == "lPD"] <- 3
 meta_dat$Diagnosis_stage <- as.numeric(meta_dat$Diagnosis_stage)
 meta_dat$id <-  paste(meta_dat$Brainbank_ID,sep=".",meta_dat$ROI)
 meta_dat$GenesDetected <- as.numeric(meta_dat$GenesDetected)
@@ -69,7 +55,7 @@ meta_dat$GenesDetected <- as.numeric(meta_dat$GenesDetected)
 load(NM_data)
 
 # 1) summarise iNM Area per per SNV and LC per subject
-data_table <- df_agg_iNM[df_agg_iNM$intra.extra == "iNM" ,c("Brainbank_ID","ROI","Area..µm..")]
+data_table <- df_agg_iNM[df_agg_iNM$intra.extra == "iNM" & df_agg_iNM$Diagnosis %in% c("CTR","ILBD") ,c("Brainbank_ID","ROI","Area..µm..")]
 df <- data_table %>%
   group_by(Brainbank_ID, ROI) %>%
   summarize_at(vars(-group_cols()), mean, na.rm = TRUE)
@@ -119,6 +105,7 @@ tmp$toxic_prc.total <- tmp$n.3 / (tmp$n.1 + tmp$n.2 + tmp$n.3 + tmp$n.4) * 100
 tmp$novel_prc.total <- tmp$n.4 / (tmp$n.1 + tmp$n.2 + tmp$n.3 + tmp$n.4) * 100
 
 # assign to quantile's to SNV and LC separately 
+# SNV
 tmp2 <- tmp[tmp$ROI == "SNV",]
 
 quantiles <- quantile(tmp2$nontoxic_prc.total, probs = c(0, 0.25, 0.5, 0.75, 1),na.rm =T)
@@ -141,8 +128,15 @@ tmp2$transition_quantile<- cut(tmp2$transition_prc.total, breaks = quantiles, in
                             labels = c("1st_Q", "2nd_Q", "3rd_Q", "4th_Q"))
 tmp2$transition_quantile <- as.character(tmp2$transition_quantile)
 
+
+quantiles <- quantile(log10(as.numeric(tmp2$ROI.Area..µm..)), probs = c(0, 0.25, 0.5, 0.75, 1),na.rm =T)
+tmp2$iNM_quantile <- cut(log10(as.numeric(tmp2$ROI.Area..µm..)), breaks = quantiles, include.lowest = TRUE, 
+                               labels = c("1st_Q", "2nd_Q", "3rd_Q", "4th_Q"))
+tmp2$iNM_quantile <- as.character(tmp2$iNM_quantile)
+
 tmp_snv <- tmp2
 
+# LC
 tmp2 <- tmp[tmp$ROI == "LC",]
 
 quantiles <- quantile(tmp2$nontoxic_prc.total, probs = c(0, 0.25, 0.5, 0.75, 1),na.rm =T)
@@ -161,6 +155,11 @@ tmp2$transition_quantile<- cut(tmp2$transition_prc.total, breaks = quantiles, in
 tmp2$transition_quantile <- as.character(tmp2$transition_quantile)
 tmp2$novel_quantile <- NA
 
+quantiles <- quantile(log10(as.numeric(tmp2$ROI.Area..µm..)), probs = c(0, 0.25, 0.5, 0.75, 1),na.rm =T)
+tmp2$iNM_quantile <- cut(log10(as.numeric(tmp2$ROI.Area..µm..)), breaks = quantiles, include.lowest = TRUE, 
+                         labels = c("1st_Q", "2nd_Q", "3rd_Q", "4th_Q"))
+tmp2$iNM_quantile <- as.character(tmp2$iNM_quantile)
+
 tmp <- rbind(tmp_snv,tmp2)
 
 # mapvalues
@@ -176,9 +175,10 @@ meta_dat$novel_quantile[!meta_dat$novel_quantile %in% c("1st_Q", "2nd_Q", "3rd_Q
 meta_dat$transition_quantile <- mapvalues(meta_dat$id, from = tmp$case.region, to = tmp$transition_quantile)
 meta_dat$transition_quantile[!meta_dat$transition_quantile %in% c("1st_Q", "2nd_Q", "3rd_Q", "4th_Q")] <- 0
 
-# plot the overlap in ROI's
-library(VennDiagram)
+meta_dat$iNM_quantile <- mapvalues(meta_dat$id, from = tmp$case.region, to = tmp$iNM_quantile)
+meta_dat$iNM_quantile[!meta_dat$iNM_quantile %in% c("1st_Q", "2nd_Q", "3rd_Q", "4th_Q")] <- 0
 
+# plot the overlap in ROI's
 venn.diagram(
   x = list(row.names(meta_dat)[meta_dat$nontoxic_quantile == "1st_Q"],
            row.names(meta_dat)[meta_dat$toxic_quantile == "1st_Q"], 
@@ -225,7 +225,6 @@ for (i in 1:length(factor_format)){
 meta_dat$Diagnosis <- factor(meta_dat$Diagnosis, levels=c('ePD','CTR','lPD','ILBD'))
 
 # read in contrast matrix
-library(writexl)
 cont_dat <- read_xlsx(contrast_path, sheet = "LIMMA_Voom")
 cont_dat <- cont_dat[cont_dat$notes == "run",]
 
@@ -326,7 +325,7 @@ res <- lapply(res,function(x){
 # write.xlsx(diag, file = "Neuromelanin_LIMMA_Voom.xlsx", row.names = FALSE)
 
 diag <- res[147:length(res)]
-write.xlsx(diag, file = "Neuromelanin_classified_LIMMA_Voom_CTR.ILBD_v3.xlsx", row.names = FALSE)
+write.xlsx(diag, file = "Neuromelanin_classified_LIMMA_Voom_CTR.ILBD_v4.xlsx", row.names = FALSE)
 
 
 # volcano plot highlighting specific genes
@@ -369,94 +368,7 @@ for (val in 147:length(res)){
 
 
 ############################################################################################
-###### Part 2: Gene ontology
-############################################################################################
-skin_melanin_enzymes = c("TYR", "TYRP1","DCT") # note DCT = "TYRP2"
-alt_PD = c("ALDH1A1", "ALDH3A1", "DDT", "CRABP1", "MAGED2","RBP4")
-CA_precursor_NM_stock_trans_metab_A9.A10 = c("TH","DDC","COMT","ALDH","MAO","AR","ADH")
-CA_precursor_NM_stock_trans_metab_A6 = c("TH", "DDC", "DBH", "MAO", "COMT", "MHPG")
-CA_functional_DA = c("SLC18A2", "SLC6A3","SLC18A1")
-CA_functional_NE = c("SLC18A2", "SLC18A1", "SLC6A2")
-Stress_granules.free_radical_scavenging = toupper(c("DDX6","DDX1", "DDX3a", "DDX17","DDX3X", "PABPC1", "eIF3A", "eIF3B", "eIF4G1",
-                                                    "G3BP1","G3BP2", "RAB33A", "MAP1L3CB2","MAP1LC3B","NDUFS7", "ACOT8", "COA7", "PRDX2",
-                                                    "PRDX1","PRDX2","PRDX5","TUBA1B","GPN1","GPNMB","EGFR","BLVTB","BLVRB","GSTT1", "SIRT5"))
-Lysosome_pathways = c("CTSD", "LAMP2", "MAP1LC3B", "SCARB2", "UBA52", "GBA1","GBA","FBXO16", "ATG5", "HSAPA4L", "HSAPA4","HSPA9", "UCHL1")
-
-#enzymes upstream of euNM, DAQ-DAC-DHI (enzyme involved in these two steps and products, eg DDT)
-upstream_euNM = c("TH","DDC","DBH","DDT")
-
-# Genes linking skin pigmentation and Parkinson’s disease
-genes_link_skinpig.PD = c("GCH1", "GPNMB", "HERC2", "LRRK2","MC1R","PRKN","SNCA", "TPCN2","TYR", "TRPM7", "VPS35")
-
-# yuhong list genes interest
-yf_genes <- c("DDT",
-              "MC1R","TYR","TYRP1",
-              "OCA2","ALDH1A1","ALDH1A3","CRABP1","MAGED2","RBP4",
-              "TH","DDC","DBH","MAO","MAOA","COMT","MHPG","VMAT2","DAT","SLC6A3","VMAT1","DDX6","DDX1","DDX3a",
-              "DDX17","PABPC1","elF3A","elF3B","elF4G1","G3BP1","G3BP2","RAB33A","MAP1L3CB2","NDUFS7",
-              "ACOT8","COA7","PRDX2","PRDX1","PRDX5","TUBA1B","GPN1","GPNMB","EGFR","BLVTB","GSTT1",
-              "SIRT5","CTSD","LAMP2","MAP1LC3B","SCARB2","UBA52","GBA1","FOXO16","FOXO1","ATG5","HSPA4L",
-              "HSAPA4","HSPA4","HSPA9","UCHL1")
-
-# pigmentation network
-pigmentation_network <- c("ADAM17","ADAMTS20","BRCA1","ED1","EDA","EDN3","EDNRB","EGFR",
-                          "FGFR2","IKBKG","KIT","KITLG","KRT2A","KRT2","LMX1A","MCOLN3","MITF","PAX3","SFXN1","SNAI2",
-                          "SOX10","SOX18","WNT1","WNT3A","DCT","GPNMB","MATP","SLC45A2","SLC45A2","RAB38","SILV","PMEL","TYR","TYRP1",
-                          "AP3B1","AP3D1","VPS33A","CNO","BLOC1S4","HPS1","HPS3","HPS4","HPS5","HPS6","LYST","MU","GSTM1",
-                          "OA1","GPR143","P","PLDN","BLOC1S6","RABGGTA","MLPH","MYO5A","MYO7A","RAB27A","ASIP","ATRN","GGT loci (several)","GGT1","GL","MC1R",
-                          "MGRN1","POMC","ATP7A","ATP7B","BCL2","ERCC2","DCX","GSR","ITG2B","ITGA2B",
-                          "ITGB3","MAP3K14","PH","PPY","C4A","C4B","U2AF1","ZFP362","ZNF362","MECP2","PITX2","RS1","SCO2","TYMP","MLC","MLC1")
-
-# yuhong + pigmentation genes
-#yf_pigment_genes <- unlist(read.delim(file="/Users/zacc/USyd/spatial_transcriptomics/analysis/geomx/geomx_oct2023/analysis_min/pigmentation+YuHong.genes.txt", header = F)[,1])
-yf_pigment_genes <- unlist(read.delim(file="/Users/zacc/USyd/spatial_transcriptomics/analysis/geomx/geomx_oct2023/analysis_min/pigmentation+YuHong.genes_fixed.txt", header = F)[,1])
-yf_pigment_genes <-  toupper(yf_pigment_genes)
-yf_pigment_genes <- unique(yf_pigment_genes )
-
-# other undefines
-other <- c("ABCB6","ANKRD27","GLS","LAMP1","RAB32","RAB9A","MYEF2","SGSM2","FOXO1")
-
-# PD genetics
-g4pd_cnv_path <- "/Users/zacc/USyd/spatial_transcriptomics/data/ref_genesets/t_cnv20200820.txt"
-g4pd_cv_path <- "/Users/zacc/USyd/spatial_transcriptomics/data/ref_genesets/t_common_variant20200820.txt"
-g4pd_rg_path <- "/Users/zacc/USyd/spatial_transcriptomics/data/ref_genesets/t_rare_gene20200820.txt"
-g4pd_rv_path <- "/Users/zacc/USyd/spatial_transcriptomics/data/ref_genesets/t_rare_variant20200820.txt"
-g4pd_deg_path <- "/Users/zacc/USyd/spatial_transcriptomics/data/ref_genesets/t_gene_expression20200820.txt"
-
-tmp <- read.delim(g4pd_rg_path, sep='\t', row.names=NULL, header=T)
-g4pd_rare_gene <- gsub(" ","",unique(unlist(tmp$Gene)))
-tmp <- read.delim(g4pd_cnv_path, sep='\t', row.names=NULL, header=T)
-g4pd_cnv <- unlist(strsplit(gsub(" ","",unique(unlist(tmp$Gene))),";|,|/"))
-tmp <- read.delim(g4pd_cv_path, sep='\t', row.names=NULL, header=T)
-g4pd_common_variant <- unlist(strsplit(gsub(" ","",unique(unlist(tmp$Gene))),";|,|/"))
-tmp <- read.delim(g4pd_rv_path, sep='\t', row.names=NULL, header=T)
-g4pd_rare_variant <- unlist(strsplit(gsub(" ","",unique(unlist(tmp$Gene))),";|,|/"))
-tmp <- read.delim(g4pd_deg_path)
-colnames(tmp) <- paste0("Published_PD_DEG_evidence_",colnames(tmp))
-g4pd_DEG <- gsub(" ","",unique(unlist(tmp$Published_PD_DEG_evidence_Gene)))
-
-
-# create list 
-# gene_interest_list <- list(skin_melanin_enzymes,alt_PD,CA_precursor_NM_stock_trans_metab_A9.A10,CA_precursor_NM_stock_trans_metab_A6,
-#                            CA_functional_DA,CA_functional_NE,Stress_granules.free_radical_scavenging,Lysosome_pathways,upstream_euNM,
-#                            genes_link_skinpig.PD,pigmentation_network,other,
-#                            g4pd_rare_gene, g4pd_cnv,g4pd_common_variant,g4pd_rare_variant,g4pd_DEG)
-# 
-# names(gene_interest_list) <- c("skin_melanin_enzymes","alt_PD","CA_precursor_NM_stock_trans_metab_A9.A10","CA_precursor_NM_stock_trans_metab_A6",
-#                               "CA_functional_DA","CA_functional_NE","Stress_granules.free_radical_scavenging","Lysosome_pathways","upstream_euNM",
-#                               "genes_link_skinpig.PD","pigmentation_network","other",
-#                               "g4pd_rare_gene", "g4pd_cnv","g4pd_common_variant","g4pd_rare_variant","g4pd_DEG")
-
-
-gene_interest_list <- list(alt_PD,pigmentation_network,
-                           g4pd_rare_gene, g4pd_cnv,g4pd_common_variant,g4pd_rare_variant,g4pd_DEG)
-
-names(gene_interest_list) <- c("alt_PD","pigmentation_network",
-                               "g4pd_rare_gene", "g4pd_cnv","g4pd_common_variant","g4pd_rare_variant","g4pd_DEG")
-
-
-############################################################################################
-###### Part 3: Heatmaps
+###### Part 2: Gene ontology &  Heatmaps
 ############################################################################################
 # thresholds
 adj_p_thresh = 0.05
@@ -621,10 +533,11 @@ for (rel_val in 1:length(cont_val)){
   colnames(annotation_matrix) <- gsub("\\s*\\(GO.*$", "",colnames(annotation_matrix ))
   colnames(annotation_matrix) <- gsub("_"," ",colnames(annotation_matrix))
   
-  # # restrict to genes with any annotations
-  # any_annot <- apply(annotation_matrix,1,any)
-  # annotation_matrix <- annotation_matrix[any_annot,]
-  # y <- y[any_annot,]
+  # restrict to genes with any annotations
+  any_annot <- apply(annotation_matrix,1,any)
+  annotation_matrix <- annotation_matrix[any_annot,]
+  y <- y[any_annot,]
+  up.down_genes <- up.down_genes[genes %in% row.names(y)]
 
   # construct row annotations 
   row_ha <- rowAnnotation("Annotation" = annotation_matrix, 
@@ -653,7 +566,7 @@ for (rel_val in 1:length(cont_val)){
                  width = ncol(y)*unit(1, "mm"), 
                  height = nrow(y)*unit(1, "mm"))
   
-  pdf(paste0("heatmap_",make.names(cont_dat$description[val]),".",val,"_CTR.ILBD.pdf"),width = 15,height =100)
+  pdf(paste0("heatmap_",make.names(cont_dat$description[val]),".",val,"_CTR.ILBD_2.pdf"),width = 15,height =100)
   draw(ht)
   dev.off()
 }
